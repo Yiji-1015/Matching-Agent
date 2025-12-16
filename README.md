@@ -104,11 +104,6 @@ Web Search Module	고유명사·신조어 외부 지식 보강
 
 🧩 Selector Design
 
-PersonaMatch   RoleMatch   TypeMatch
-      \           |           /
-       \          |          /
-        ------ Main Selector ------
-
 PersonaMatch: 성향·정서·페르소나 유사성
 
 TypeMatch: 매칭 대상 유형 정합성
@@ -164,8 +159,9 @@ Baseline(embedding-only) 실패 사례 80건 중
 본 레포는 연구·실험 목적의 구현 코드입니다.
 
 실제 서비스 적용 시:
-비용 최적화
-LLM 호출 전략
-개인정보 보호
+
+비용 최적화 / 
+LLM 호출 전략 / 
+개인정보 보호 / 
 사용자 선호 학습 로직 추가 고려 필요
 
