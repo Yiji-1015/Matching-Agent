@@ -1,169 +1,216 @@
-🤖 RAG-Based Loose Matching Agent
+# RAG-Based Loose Matching Agent
 
-Role-Differentiated LLM Architecture for Semantic Matching
+> Designing a RAG-Based Matching Agent with Role-Differentiated LLMs  
+> 석사학위논문 「검색증강생성과 역할 분리형 LLM 기반 매칭 에이전트 설계」 구현 및 실험 코드
 
-이 레포지토리는
-석사학위논문
-「검색증강생성과 역할 분리형 LLM 기반 매칭 에이전트 설계」
-의 실험 및 시스템 구현 코드입니다.
+온라인 커뮤니티와 플랫폼에서는 사용자가 자신의 필요를 구조화된 필드가 아니라 자연어 게시글로 표현하는 경우가 많습니다. 이때 단순 키워드 검색이나 임베딩 유사도만으로는 표현이 다르지만 실제로 연결 가능한 상대를 놓치거나, 반대로 표면적으로 비슷하지만 역할이 맞지 않는 상대를 추천하는 문제가 발생합니다.
 
-본 프로젝트는 비정형 자연어 메시지 간 Loose Matching 문제를 해결하기 위해
-RAG(Retrieval-Augmented Generation) 와
-역할 분리형 LLM 에이전트 구조를 결합한 매칭 시스템을 구현합니다.
+이 프로젝트는 이러한 비정형 자연어 메시지 간 매칭 문제를 **Loose Matching**으로 정의하고, RAG와 역할 분리형 LLM 구조를 결합해 의미적으로 설득력 있는 매칭 후보를 찾는 에이전트 시스템을 구현합니다.
 
+## Why This Matters
 
----
+자연어 매칭은 겉으로는 "비슷한 글을 찾는 문제"처럼 보이지만, 실제로는 **비슷한 표현**보다 **연결 가능한 관계**를 찾는 문제가 되는 경우가 많습니다. 예를 들어 다음과 같은 상황에서는 단순 검색이나 임베딩 유사도만으로 좋은 결과를 얻기 어렵습니다.
 
-🔍 Problem Statement
+### 1. 같은 단어를 쓰지만 역할이 같은 경우
 
-온라인 커뮤니티·플랫폼에서 이루어지는 매칭은 다음과 같은 한계를 가집니다.
+```text
+Input
+고등학생 밴드에서 일렉기타 연주자를 급하게 찾고 있어요.
 
-사용자의 요구가 명시적으로 표현되지 않음
+Bad match
+저희도 밴드에서 기타/보컬 멤버를 모집하고 있어요.
 
-키워드 검색·임베딩 유사도 기반 방식은
-👉 표현 다양성·맥락·역할 상보성을 놓침
+Better match
+일렉기타 치는 사람입니다. 취미 밴드에서 같이 합주할 팀을 찾고 있어요.
+```
 
-단일 LLM 기반 매칭은
-👉 복잡한 판단 기준을 일관되게 처리하기 어려움
+두 메시지 모두 "밴드", "기타", "모집"이라는 단어를 포함할 수 있지만, 첫 번째 후보는 사용자와 똑같이 멤버를 찾는 모집자입니다. 실제 연결이 성립하려면 모집자와 지원자처럼 역할이 상보적이어야 합니다.
 
+### 2. 단어는 다르지만 상위 목적이 같은 경우
 
-이를 해결하기 위해 본 시스템은
-“Loose Matching” 이라는 개념을 정의하고,
-사람의 직관적 의미 판단을 역할 분리형 LLM 구조로 모사합니다.
+```text
+Input
+요즘 너무 지쳐서 주말에 조용히 쉬고 싶어요.
 
+Bad match
+주말에 야근하시는 분 계신가요?
 
----
+Better match
+한적한 카페에서 책 읽거나 산책하면서 쉬실 분 구해요.
+```
 
-🧠 Core Idea: Loose Matching
+사용자가 "휴식", "산책", "카페"를 직접 말하지 않아도, 메시지의 정서와 맥락상 "회복", "조용한 시간", "가벼운 동행" 같은 상위 목적을 추론할 수 있습니다.
 
-Loose Matching이란,
+### 3. 표면 키워드는 맞지만 실제 조건이 어긋나는 경우
 
-> 명시적 표현이 완전히 일치하지 않더라도
-의도·맥락·역할 관점에서 의미적으로 연결 가능성이 있는 상대를 식별하는 매칭 방식
+```text
+Input
+영화 승부 보러 같이 가실 분? 멤버십 혜택으로 반값 가능해요.
 
+Bad match
+CGV에서 다른 영화 보실 분? 표랑 팝콘은 제가 낼게요.
 
-본 시스템은 다음 4가지 판단 기준을 중심으로 매칭을 수행합니다.
+Better match
+영화 승부 보러 가실 분? 장소나 시간은 조율 가능해요.
+```
 
-1. Matching Target & Hypernym
-직접 대상 + 상위 개념 기반 의미 연결
+Baseline은 "영화", "CGV" 같은 표면 키워드에 끌릴 수 있습니다. 하지만 실제 매칭에서는 보고 싶은 영화, 참여 방식, 비용 구조, 동행 의도가 함께 맞아야 합니다.
 
-2. 표현 명시성
+### 4. 대상 유형이 달라서 연결이 어려운 경우
 
-암시적·정서적 표현까지 해석
+```text
+Input
+일렉기타 중고로 사고 싶어요.
 
-3. 매칭 대상 유형(Type)
-사람 / 장소·이벤트·서비스 / 물건
+Bad match
+일렉기타 배우고 싶은 분 모집합니다.
 
-4. 역할 상보성 (Homogeneous vs Heterogeneous)
+Better match
+일렉기타 판매합니다. 입문용으로 쓰기 좋아요.
+```
 
+세 문장 모두 "일렉기타"를 포함하지만, 사용자는 물건 거래를 원합니다. 레슨이나 모임 메시지는 같은 도메인에 있어도 매칭 대상 유형이 다릅니다.
 
+## Research Context
 
----
+Loose Matching은 표현이 완전히 일치하지 않더라도 **의도, 맥락, 대상, 역할 구조** 관점에서 연결 가능성이 있는 상대를 식별하는 매칭 방식입니다.
 
-🏗 System Architecture
+여기서 "Loose"는 부정확하거나 느슨하게 아무 후보나 연결한다는 의미가 아닙니다. 오히려 현실의 자연어 매칭에서는 사용자가 원하는 대상을 항상 정확한 키워드나 구조화된 조건으로 말하지 않기 때문에, **정확 일치(exact matching) 밖에 있는 의미적 연결 가능성**까지 판단해야 한다는 문제의식을 담고 있습니다.
 
-본 구현은 역할이 명확히 분리된 LLM 노드 기반 멀티 에이전트 구조로 설계되었습니다.
+예를 들어 "오늘 너무 지쳤다"는 문장은 명시적으로 "마사지", "산책", "조용한 카페"를 말하지 않지만, 맥락상 회복이나 휴식과 관련된 상대를 찾는 신호일 수 있습니다. 반대로 "기타"라는 단어가 똑같이 등장해도, 한쪽은 중고 기타를 사고 싶고 다른 한쪽은 기타 레슨 수강생을 찾는다면 실제 매칭으로 보기 어렵습니다. 따라서 Loose Matching은 단순히 기준을 완화하는 것이 아니라, **표현은 다르지만 목적이 이어지는 경우는 열어두고, 표현은 비슷하지만 역할이 맞지 않는 경우는 걸러내는 의미 기반 매칭 관점**입니다.
 
-Main Nodes
+본 연구는 다음 두 가지 문제를 분리해 다룹니다.
 
-Orchestrator	전체 흐름 제어, 노드 호출 및 재시도 관리
-Query Reformer	의미 확장·역할 전환 기반 쿼리 재구성
-Selector	다중 기준 기반 후보 선별
-Evaluator	최종 매칭 판단 및 실패 관리
+- **Screening 문제**: 비정형 자연어에서 의미적으로 연결 가능한 후보를 충분히 찾아오지 못하는 문제
+- **Selecting 문제**: 회수된 후보 중 단순 유사도를 넘어 의도, 맥락, 역할을 반영해 최종 선택하는 문제
 
+이를 위해 약 17,000건의 실제 및 합성 자연어 메시지를 대상으로, 임베딩 기반 검색과 역할 분리형 LLM 판단을 결합한 매칭 파이프라인을 설계했습니다.
 
-Auxiliary Nodes
+## Core Idea
 
-Message Analyzer	사용자 메시지 의미 구조화
-Web Search Module	고유명사·신조어 외부 지식 보강
+본 시스템은 메시지 간 매칭 가능성을 다음 네 가지 기준으로 판단합니다.
 
+1. **Matching Target & Hypernym**  
+   사용자가 직접 찾는 대상과 그 상위 개념을 함께 고려합니다. 예를 들어 "바람막이"와 "가디건"은 모두 "아우터"라는 상위어를 통해 연결될 수 있습니다.
 
----
+   ```text
+   "바람막이 사고 싶어요" ↔ "가디건 판매합니다"
+   직접 대상은 다르지만, 둘 다 아우터라는 상위어를 공유합니다.
+   ```
 
-🔄 Matching Flow
+2. **표현 명시성**  
+   "마사지 받을 곳을 찾는다"처럼 명시적인 요청뿐 아니라, 피로감이나 상황 설명처럼 암시적으로 드러난 필요도 해석합니다.
 
-LangGraph 시각화
-<img width="644" height="531" alt="image" src="https://github.com/user-attachments/assets/5b9fb599-4ca0-4cb7-a916-06d4876c2bde" />
+   ```text
+   "이번 주 내내 야근해서 몸이 너무 무거워요"
+   → 명시적으로 말하지 않았지만 휴식, 마사지, 힐링 활동과 연결될 수 있습니다.
+   ```
 
-1. Input Message
+3. **매칭 대상 유형(Type)**  
+   메시지가 사람, 장소/이벤트/서비스, 물건 중 무엇을 찾는지 구분해 불필요한 후보를 줄입니다.
 
-2. Message Analysis / Web Search (optional)
+   ```text
+   "피아노 같이 칠 사람" → 사람
+   "피아노 연습실 추천" → 장소/서비스
+   "전자피아노 삽니다" → 물건
+   ```
 
-3. Query Reformulation (2 parallel queries)
+4. **역할 상보성(Role Complementarity)**  
+   "구매한다 vs 판매한다", "모집한다 vs 참여한다", "도움을 요청한다 vs 도움을 제공한다"처럼 양측 역할이 실제 상호작용을 만들 수 있는지 판단합니다.
 
-4. Vector Retrieval (FAISS)
+   ```text
+   "중국어 회화 알려주실 분" ↔ "중국어 재능기부 가능합니다"
+   "중국어 친구 만들고 싶어요" ↔ "중국어 친구 만들고 싶어요"
+   ```
 
-5. Parallel Sub-Selectors
-- PersonaMatch
-- TypeMatch
-- RoleMatch
+   두 번째 쌍은 관심사는 비슷하지만 양쪽 모두 같은 역할을 원하므로 실제 매칭 가능성은 낮을 수 있습니다.
 
-6. Main Selector
+## System Architecture
 
-7. Evaluator (max 2 iterations)
+시스템은 LangGraph 기반 상태 그래프로 구현되어 있으며, 각 노드는 동일한 `AgentState`를 읽고 갱신합니다. State에는 입력 메시지, 작성자, Matching Target, hypernym, 분석 결과, 웹 검색 결과, 재구성 쿼리, 후보군, Selector 판단 이력, 실패 로그, 평가 횟수 등이 저장됩니다.
 
+### Main Nodes
 
----
+| Node | Role |
+| --- | --- |
+| `Orchestrator` | 전체 흐름 제어, 노드 호출, 재시도 전략 관리 |
+| `Query Reformer` | 원문 및 재구성 쿼리를 생성해 FAISS 후보 검색 수행 |
+| `Selector` | TypeMatch, RoleMatch, PersonaMatch 결과를 종합해 최종 후보 선택 |
+| `Evaluator` | 선택 결과를 재검토하고 실패 시 로그를 남겨 재탐색 유도 |
 
-🧩 Selector Design
+### Auxiliary Nodes
 
-PersonaMatch: 성향·정서·페르소나 유사성
+| Node | Role |
+| --- | --- |
+| `Message Analyzer` | 사용자 메시지의 목적, 대상, 조건, 감정, 맥락 구조화 |
+| `Web Search Module` | 브랜드명, 줄임말, 이벤트명 등 DB만으로 해석하기 어려운 표현 보강 |
 
-TypeMatch: 매칭 대상 유형 정합성
+## Matching Flow
 
-RoleMatch: 역할 상보성 (가장 중요한 기준)
+1. 사용자 자연어 메시지 입력
+2. Orchestrator가 Matching Target과 상위어를 초기 정의
+3. 필요한 경우 Message Analyzer 또는 Web Search Module 호출
+4. Query Reformer가 의미 확장/역할 전환 기반 쿼리 2개 생성
+5. 원문 쿼리와 재구성 쿼리로 FAISS 벡터 검색 수행
+6. TypeMatch, RoleMatch, PersonaMatch가 후보군을 각 기준으로 평가
+7. Main Selector가 단일 후보와 판단 근거, 확신도를 반환
+8. Evaluator가 최종 적합성을 검토하고, 실패 시 `failure_log` 기반 재탐색 수행
 
-Main Selector: 모든 판단을 종합해 단일 후보 선택
+## Selector Design
 
+- **TypeMatch**: 매칭 대상이 사람, 장소/이벤트/서비스, 물건 중 어떤 유형인지 판단합니다.
+- **RoleMatch**: 양측 메시지의 역할이 동일한지, 상보적인지 판단합니다. 본 시스템에서 가장 중요한 판단 기준 중 하나입니다.
+- **PersonaMatch**: 말투, 관심사, 가치관, 조건 부합성을 바탕으로 페르소나 유사성 또는 보완성을 판단합니다.
+- **Main Selector**: 하위 Selector의 판단을 비판적으로 종합해 최종 후보를 선택합니다.
 
----
+## Example Scenarios
 
-📦 Tech Stack
+### Fashion Event Matching
 
-LLM
-- OpenAI GPT-4o
+사용자가 "노매뉴얼 플래그십스토어 프레젠테이션/애프터파티에 같이 갈 사람"을 찾는 경우, 시스템은 Web Search Module을 통해 고유명사와 이벤트 맥락을 보강하고, Query Reformer가 "패션 행사", "브랜드 오프라인 이벤트" 등으로 쿼리를 확장합니다. 이후 단순 팝업스토어 동행보다 패션 관심사와 활동 성향이 맞는 후보를 더 설득력 있는 매칭으로 판단합니다.
 
-Embedding
-- text-embedding-3-small
+### Movie Companion Matching
 
-Vector DB
-- FAISS (cosine similarity)
+"영화 승부를 멤버십 혜택으로 같이 볼 사람"이라는 요청에서, Baseline은 CGV나 영화라는 표면 키워드가 비슷한 후보를 선택할 수 있습니다. 반면 본 시스템은 영화 제목, 참여 조건, 비용 부담 구조, 동행 역할을 함께 검토해 동일한 영화 관람 의도를 가진 후보를 우선합니다.
 
-External Tools
-- Tavily Search API (Web Search Module)
+### Band Member Matching
 
----
+"고등학생 밴드에서 일렉기타/건반 연주자를 찾는다"는 메시지에 대해, 단순히 밴드 관련 글을 찾는 것이 아니라 "모집자 vs 지원자" 구조가 성립하는지 판단합니다. 양쪽 모두 모집자인 경우는 표현이 유사해도 실패로 보고, 실제 세션 참여 의사가 있는 후보를 탐색합니다.
 
-🧪 Experiments
+## Experiments
 
-약 17,000건의 실제·합성 자연어 메시지 사용
+평가는 두 방향으로 수행했습니다.
 
-Baseline(embedding-only) 실패 사례 80건 중
-약 49%에서 의미적으로 설득력 있는 매칭 도출
+- **Loose Matching 일반 메시지셋**: 약 17,000건의 실제 및 합성 자연어 메시지를 사용했습니다.
+- **Baseline 실패 사례 분석**: embedding-only retrieval + GPT-4o selection 구조가 실패한 80건을 대상으로 제안 시스템을 재평가했습니다.
+- **결과**: 80건 중 39건, 즉 48.75%에서 Baseline보다 더 설득력 있는 매칭 결과를 도출했습니다.
+- **주요 개선 영역**: 역할 상보성이 중요한 시나리오, 표현은 다르지만 상위어/맥락이 연결되는 시나리오, 단순 관심사 유사도보다 실제 상호작용 가능성이 중요한 시나리오에서 효과가 두드러졌습니다.
 
-역할 상보성이 중요한 시나리오에서 특히 성능 우수
+## Tech Stack
 
+| Area | Stack |
+| --- | --- |
+| LLM | GPT-4o |
+| Embedding | text-embedding-3-small |
+| Vector DB | FAISS |
+| Agent Workflow | LangGraph |
+| Web Search | Tavily Search API |
+| Data | Excel, FAISS index |
 
----
+## Repository Structure
 
-📖 Reference
+```text
+.
+├── Matching_Agent.ipynb        # 연구/실험용 원본 노트북
+├── matching_agent/             # 노트북에서 분리한 실행용 Python 모듈
+├── prompts/                    # 역할별 에이전트 프롬프트
+├── 0522_data.xlsx              # 자연어 메시지 데이터
+├── 0522_data_updated/          # FAISS 인덱스
+├── test_result.xlsx            # Baseline vs Agent 비교 실험 결과
+├── run_demo.py                 # 단일 입력 실행 스크립트
+└── requirements.txt
+```
 
-윤이지,
-「검색증강생성과 역할 분리형 LLM 기반 매칭 에이전트 설계」,
-경희대학교 빅데이터응용학과 석사학위논문, 2025.
+## Reference
 
-
-
----
-
-⚠️ Notes
-
-본 레포는 연구·실험 목적의 구현 코드입니다.
-
-실제 서비스 적용 시:
-
-비용 최적화 / 
-LLM 호출 전략 / 
-개인정보 보호 / 
-사용자 선호 학습 로직 추가 고려 필요
-
+윤이지. 「검색증강생성과 역할 분리형 LLM 기반 매칭 에이전트 설계」. 경희대학교 대학원 빅데이터응용학과 석사학위논문, 2025.
