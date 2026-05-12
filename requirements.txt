@@ -1,0 +1,12 @@
+python-dotenv
+pandas
+openpyxl
+faiss-cpu
+langchain
+langchain-community
+langchain-core
+langchain-openai
+langchain-anthropic
+langgraph
+tavily-python
+tqdm
